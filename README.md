@@ -7,7 +7,7 @@ avec possibilité de couper ou bloquer une connexion.
 ## Installation (Linux)
 
 ```bash
-unzip ip-globe.zip && cd ip-globe
+git clone https://github.com/2saykow/ip-globe.git && cd ip-globe
 ./install.sh
 ```
 
