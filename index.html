@@ -180,42 +180,28 @@ for (let i = 0; i < 4000; i++) {
 const starGeo = new THREE.BufferGeometry(); starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
 scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xaab8ff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.7 })));
 
-// --- Le cœur au centre : ton PC ---
-const heartShape = new THREE.Shape();
-heartShape.moveTo(0, 0.25); heartShape.bezierCurveTo(0, 0.25, -0.05, 0, -0.25, 0);
-heartShape.bezierCurveTo(-0.55, 0, -0.55, 0.35, -0.55, 0.35); heartShape.bezierCurveTo(-0.55, 0.55, -0.35, 0.77, 0, 0.95);
-heartShape.bezierCurveTo(0.35, 0.77, 0.55, 0.55, 0.55, 0.35); heartShape.bezierCurveTo(0.55, 0.35, 0.55, 0, 0.25, 0);
-heartShape.bezierCurveTo(0.1, 0, 0, 0.25, 0, 0.25);
-const heartGeo = new THREE.ExtrudeGeometry(heartShape, { depth: 0.18, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 6, curveSegments: 32 });
-heartGeo.center(); heartGeo.rotateZ(Math.PI);
-const heart = new THREE.Group();
-heart.add(new THREE.Mesh(heartGeo, new THREE.MeshBasicMaterial({ color: 0xff7a6b })));
+// --- Le point au centre : ton PC ---
 const spriteTex = draw => { const c = document.createElement('canvas'); c.width = c.height = 256; draw(c.getContext('2d')); return new THREE.CanvasTexture(c); };
-const heartGlow = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+const pcDot = new THREE.Group();
+pcDot.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 24), new THREE.MeshBasicMaterial({ color: 0xffffff })));
+const dotGlow = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   map: spriteTex(g => { const r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-    r.addColorStop(0, 'rgba(255,140,110,0.9)'); r.addColorStop(0.35, 'rgba(255,90,90,0.35)'); r.addColorStop(1, 'rgba(255,60,80,0)');
+    r.addColorStop(0, 'rgba(200,215,255,0.9)'); r.addColorStop(0.3, 'rgba(120,150,255,0.3)'); r.addColorStop(1, 'rgba(90,120,255,0)');
     g.fillStyle = r; g.fillRect(0, 0, 256, 256); }) }));
-heartGlow.scale.set(3.2, 3.2, 1);
-heart.add(heartGlow);
+dotGlow.scale.set(1.2, 1.2, 1);
+pcDot.add(dotGlow);
 let nameSprite = null;
-function setHeartName(text) {
-  if (nameSprite) heart.remove(nameSprite);
+function setPcName(text) {
+  if (nameSprite) pcDot.remove(nameSprite);
   nameSprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false,
-    map: spriteTex(g => { g.font = '300 34px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.fillStyle = '#ffd9cf';
-      g.shadowColor = 'rgba(255,120,100,0.9)'; g.shadowBlur = 18; g.fillText(text.toUpperCase().split('').join(' '), 128, 140, 250); }) }));
-  nameSprite.scale.set(1.6, 1.6, 1); nameSprite.position.y = -1.0;
-  heart.add(nameSprite);
+    map: spriteTex(g => { g.font = '300 34px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.fillStyle = '#dbe4ff';
+      g.shadowColor = 'rgba(120,150,255,0.9)'; g.shadowBlur = 18; g.fillText(text.toUpperCase().split('').join(' '), 128, 140, 250); }) }));
+  nameSprite.scale.set(1.6, 1.6, 1); nameSprite.position.y = -0.7;
+  pcDot.add(nameSprite);
 }
-setHeartName('mon pc');
-heart.scale.setScalar(R * 0.16);
-scene.add(heart);
-(function beat(t) {
-  const p = (t / 1000) % 1.1, pulse = Math.exp(-((p - 0.1) ** 2) / 0.004) + 0.6 * Math.exp(-((p - 0.32) ** 2) / 0.004);
-  heart.scale.setScalar(R * 0.16 * (1 + 0.12 * pulse));
-  heartGlow.material.opacity = 0.65 + 0.35 * pulse;
-  heart.quaternion.copy(Graph.camera().quaternion);
-  requestAnimationFrame(beat);
-})(0);
+setPcName('mon pc');
+pcDot.scale.setScalar(R * 0.16);
+scene.add(pcDot);
 
 // --- Caméra ---
 Graph.cameraPosition({ x: 0, y: R * 0.6, z: R * 3.2 });
@@ -358,7 +344,7 @@ async function update() {
   let data;
   try { data = await (await fetch('/api/connections', { cache: 'no-store' })).json(); showErr(''); }
   catch (e) { showErr('le serveur IP Globe ne répond pas — relance l’appli'); return; }
-  setHeartName(data.host || 'mon pc');
+  setPcName(data.host || 'mon pc');
   peers = data.peers;
   const nodes = [PC], links = [];
   const nodeAt = (id, lat, lon) => {   // position fixe : vraie position géographique, ou position stable sur le globe (réseau local, pont Tor)
