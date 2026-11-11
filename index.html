@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>IP Globe</title>
+<script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<style>
+  :root { --panel: rgba(12,16,32,.62); --border: rgba(140,170,255,.14); --input: rgba(140,170,255,.18);
+          --text: #e9edff; --text-2: #8e98c2; --accent: #8fb0ff; --out: #6ec8ff; --in: #c38bff; --lan: #7dffa8; --danger: #ff3b3b; --suspect: #ffa53b; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #01020a; color: var(--text); font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #graph { position: fixed; inset: 0; }
+  #title { position: fixed; left: 24px; top: 20px; pointer-events: none; }
+  #title h1 { font-size: 22px; font-weight: 300; letter-spacing: .35em; text-transform: uppercase;
+              background: linear-gradient(90deg, #c9d6ff, #8fb0ff 60%, #b58fff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #title p { font-size: 11px; color: var(--text-2); letter-spacing: .15em; margin-top: 4px; }
+  #keys { position: fixed; left: 24px; bottom: 22px; display: flex; gap: 16px; font-size: 11px; color: var(--text-2); letter-spacing: .08em; }
+  #keys span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  #sidebar { position: fixed; top: 14px; right: 14px; bottom: 14px; width: 300px; display: flex; flex-direction: column;
+             background: var(--panel); border: 1px solid var(--border); border-radius: 18px; backdrop-filter: blur(18px) saturate(140%);
+             box-shadow: 0 20px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05); overflow: hidden; }
+  section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; font-weight: 600; }
+  #search { width: 100%; background: rgba(0,0,0,.35); border: 1px solid var(--input); color: var(--text); padding: 10px 14px;
+            border-radius: 12px; font-size: 13px; outline: none; transition: border-color .2s, box-shadow .2s; }
+  #search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(143,176,255,.2), 0 0 24px rgba(143,176,255,.15); }
+  #results { max-height: 160px; overflow-y: auto; margin-top: 6px; }
+  .row { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 9px; cursor: pointer; font-size: 12px;
+         white-space: nowrap; overflow: hidden; transition: background .15s, opacity .2s; }
+  .row:hover { background: rgba(143,176,255,.1); }
+  .row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 10px var(--c); background: var(--c); }
+  .flag { font-size: 14px; width: 18px; text-align: center; }
+  .count { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #info { font-size: 13px; line-height: 1.65; color: var(--text-2); min-height: 110px; word-break: break-word; }
+  #info b { color: var(--text); font-size: 14px; }
+  #info-sec { max-height: 52vh; overflow-y: auto; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 2px 8px; font-size: 12px; margin-top: 8px; }
+  .kv span:nth-child(odd) { color: var(--text-2); }
+  .kv span:nth-child(even) { color: var(--text); word-break: break-all; }
+  .actions { display: flex; gap: 6px; margin: 10px 0 4px; }
+  .actions button { flex: 1; border-radius: 9px; padding: 7px 0; font-size: 12px; cursor: pointer; border: 1px solid; background: transparent; transition: all .15s; }
+  .act-kill { color: #ffd27a; border-color: rgba(255,210,122,.4) !important; }
+  .act-kill:hover { background: rgba(255,210,122,.12); }
+  .act-block { color: #ff8a8a; border-color: rgba(255,107,107,.45) !important; }
+  .act-block:hover { background: rgba(255,107,107,.14); }
+  .act-unblock { color: var(--lan); border-color: rgba(125,255,168,.4) !important; }
+  .actions button:disabled { opacity: .4; cursor: wait; }
+  .conn { font-size: 11px; color: var(--text-2); padding: 5px 8px; margin-top: 4px; border-radius: 8px; background: rgba(0,0,0,.25); font-variant-numeric: tabular-nums; }
+  .conn b { color: var(--text); font-size: 11px; }
+  .sub { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-top: 12px; }
+  #blocked-sec { display: none; }
+  .reasons { margin: 8px 0; padding: 8px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+  .reasons.danger { background: rgba(255,59,59,.14); border: 1px solid rgba(255,59,59,.5); color: #ffb3b3; }
+  .reasons.suspect { background: rgba(255,165,59,.12); border: 1px solid rgba(255,165,59,.45); color: #ffd3a1; }
+  .reasons div::before { content: '⚠ '; }
+  #alert { display: none; margin-top: 8px; font-size: 12px; letter-spacing: .1em; color: #fff; background: rgba(255,59,59,.85);
+           padding: 4px 10px; border-radius: 8px; animation: alarm 1.2s infinite; pointer-events: auto; cursor: pointer; }
+  @keyframes alarm { 50% { background: rgba(255,59,59,.35); } }
+  #toast { position: fixed; left: 50%; top: 22px; transform: translateX(-50%); font-size: 13px; padding: 9px 16px; border-radius: 10px;
+           background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(12px); display: none; z-index: 10; }
+  #legend-sec { flex: 1; overflow-y: auto; border-bottom: none; min-height: 120px; }
+  .row.off { opacity: .28; }
+  .bar { display: flex; gap: 6px; margin-bottom: 10px; }
+  .bar button { flex: 1; background: rgba(0,0,0,.3); border: 1px solid var(--input); color: var(--text-2); border-radius: 9px;
+                padding: 6px 0; font-size: 11px; cursor: pointer; transition: all .15s; }
+  .bar button:hover { color: var(--text); border-color: var(--accent); }
+  .bar button[aria-pressed="true"] { background: rgba(143,176,255,.18); color: var(--text); border-color: var(--accent); }
+  #stats { padding: 10px 16px; font-size: 11px; color: var(--text-2); border-top: 1px solid var(--border); display: flex; justify-content: space-between; }
+  #live::before { content: '●'; color: var(--lan); margin-right: 5px; animation: blink 1.6s infinite; }
+  #live.paused::before { color: var(--text-2); animation: none; }
+  @keyframes blink { 50% { opacity: .2; } }
+  #msg { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); color: #ffb4b4; font-size: 13px;
+         background: var(--panel); padding: 8px 14px; border-radius: 10px; display: none; }
+  .scene-tooltip { font-family: inherit !important; background: rgba(12,16,32,.85) !important; padding: 6px 10px !important;
+                   border-radius: 8px !important; border: 1px solid var(--border); }
+  * { scrollbar-width: thin; scrollbar-color: var(--input) transparent; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="title"><h1>IP Globe</h1><p id="subtitle">connexions en direct</p><div id="alert" role="alert"></div></div>
+<div id="keys"><span style="--c:var(--danger)">danger</span><span style="--c:var(--suspect)">suspect</span><span style="--c:var(--in)">entrant</span><span style="--c:var(--out)">sortant</span><span style="--c:var(--lan)">réseau local</span></div>
+<div id="msg" role="alert"></div>
+<div id="toast" role="status"></div>
+<script>
+const showErr = t => { const m = document.getElementById('msg'); m.textContent = t ? 'Erreur : ' + t : ''; m.style.display = t ? 'block' : 'none'; };
+window.onerror = (msg, src, line) => showErr(msg + ' (ligne ' + line + ')');
+if (typeof ForceGraph3D === 'undefined' || typeof THREE === 'undefined') showErr('bibliothèque 3D non chargée (connexion internet ?)');
+</script>
+<div id="sidebar">
+  <section>
+    <input id="search" type="text" placeholder="Rechercher une IP, un pays, un programme…" autocomplete="off" aria-label="Rechercher">
+    <div id="results"></div>
+  </section>
+  <section id="info-sec">
+    <h3>Connexion</h3>
+    <div id="info"><i>Clique sur un point pour voir qui c'est</i></div>
+  </section>
+  <section id="blocked-sec">
+    <h3>IP bloquées</h3>
+    <div id="blocked"></div>
+  </section>
+  <section id="legend-sec">
+    <div class="bar">
+      <button id="spin" type="button" aria-pressed="true">Rotation</button>
+      <button id="pause" type="button" aria-pressed="false">Pause</button>
+      <button id="all" type="button">Tout masquer</button>
+    </div>
+    <h3>Pays</h3>
+    <div id="legend"></div>
+  </section>
+  <div id="stats"><span id="count"></span><span id="live">en direct</span></div>
+</div>
+<script>
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const R = 320, REFRESH_MS = 3000;
+const COLORS = { sortant: '#6ec8ff', entrant: '#c38bff', local: '#7dffa8', danger: '#ff3b3b', suspect: '#ffa53b' };
+const colorOf = n => COLORS[n.threat && n.threat !== 'normal' ? n.threat : n.direction];   // la menace passe avant le sens
+const flag = cc => cc === 'LAN' ? '🏠' : /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 127397 + c.charCodeAt(0))) : '🌐';
+const latLon = (lat, lon, r = R) => {
+  const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  return { x: r * Math.cos(la) * Math.sin(lo), y: r * Math.sin(la), z: r * Math.cos(la) * Math.cos(lo) };
+};
+const hash = s => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return (h >>> 0) / 4294967295; };
+
+// --- Graphe : ton PC au centre, une sphère par IP distante, posée à sa vraie position ---
+const PC = { id: 'pc', pc: true, x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 0 };
+const nodesById = new Map([['pc', PC]]);
+const hiddenCountries = new Set();
+let selected = null, paused = false, peers = [];
+const visible = n => n.pc || !hiddenCountries.has(n.country);
+const endNode = x => typeof x === 'object' ? x : nodesById.get(x);
+
+const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph'))
+  .backgroundColor('#01020a').showNavInfo(false)
+  .cooldownTicks(0).warmupTicks(0).enableNodeDrag(false)
+  .nodeLabel(n => n.pc ? '' : `<b>${esc(n.ip)}</b><br>${flag(n.country)} ${esc(n.city ? n.city + ', ' : '')}${esc(n.country_name)}<br><span style="color:${colorOf(n)}">${esc(n.threat !== 'normal' ? n.threat.toUpperCase() : n.direction)}</span> · ${esc(n.procs.join(', ') || 'programme inconnu')}`)
+  .nodeVisibility(n => !n.pc && visible(n))
+  .nodeColor(n => selected && n !== selected ? 'rgba(90,100,140,0.4)' : colorOf(n))
+  .nodeVal(n => (1 + Math.min(n.count || 1, 12)) * (n.threat === 'danger' ? 4 : n.threat === 'suspect' ? 2 : 1)).nodeRelSize(2.2).nodeOpacity(0.95).nodeResolution(12)
+  .linkVisibility(l => visible(endNode(l.source)) && visible(endNode(l.target)))
+  .linkColor(l => COLORS[l.dir]).linkOpacity(0.35)
+  .linkWidth(l => selected && (endNode(l.source) === selected || endNode(l.target) === selected) ? 1.2 : 0.4)
+  .linkDirectionalParticles(l => Math.min(1 + l.count, 4))
+  .linkDirectionalParticleWidth(2.2).linkDirectionalParticleSpeed(0.006)
+  .linkDirectionalParticleColor(l => COLORS[l.dir])
+  .onNodeClick(n => !n.pc && focus(n))
+  .onBackgroundClick(() => { selected = null; refresh(); document.getElementById('info').innerHTML = "<i>Clique sur un point pour voir qui c'est</i>"; });
+
+// --- Décor : globe, contours des pays, atmosphère, étoiles ---
+const scene = Graph.scene();
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(R * 0.995, 64, 64),
+  new THREE.MeshBasicMaterial({ color: 0x0a1230, transparent: true, opacity: 0.55, depthWrite: false })));
+const glow = (radius, power, side, color) => new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 64), new THREE.ShaderMaterial({
+  uniforms: { c: { value: new THREE.Color(color) } }, transparent: true, depthWrite: false, side, blending: THREE.AdditiveBlending,
+  vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+  fragmentShader: `uniform vec3 c; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(vN, vV)), ${power.toFixed(1)}); gl_FragColor = vec4(c, f); }`
+}));
+scene.add(glow(R * 0.995, 2.5, THREE.FrontSide, 0x4f7bff));
+scene.add(glow(R * 1.18, 4.0, THREE.BackSide, 0x3a5cff));
+fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(r => r.json()).then(world => {
+  const mesh = topojson.mesh(world, world.objects.countries), pts = [];
+  mesh.coordinates.forEach(line => line.slice(1).forEach((p, i) => {
+    const a = latLon(line[i][1], line[i][0], R), b = latLon(p[1], p[0], R);
+    pts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  }));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x7f9cff, transparent: true, opacity: 0.45 })));
+}).catch(() => {});   // sans la carte, le globe reste utilisable
+let seed = 7; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const starPos = new Float32Array(4000 * 3);
+for (let i = 0; i < 4000; i++) {
+  const d = 2500 + rand() * 2500, t = rand() * 2 * Math.PI, p = Math.acos(2 * rand() - 1);
+  starPos.set([d * Math.sin(p) * Math.cos(t), d * Math.cos(p), d * Math.sin(p) * Math.sin(t)], i * 3);
+}
+const starGeo = new THREE.BufferGeometry(); starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xaab8ff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.7 })));
+
+// --- Le cœur au centre : ton PC ---
+const heartShape = new THREE.Shape();
+heartShape.moveTo(0, 0.25); heartShape.bezierCurveTo(0, 0.25, -0.05, 0, -0.25, 0);
+heartShape.bezierCurveTo(-0.55, 0, -0.55, 0.35, -0.55, 0.35); heartShape.bezierCurveTo(-0.55, 0.55, -0.35, 0.77, 0, 0.95);
+heartShape.bezierCurveTo(0.35, 0.77, 0.55, 0.55, 0.55, 0.35); heartShape.bezierCurveTo(0.55, 0.35, 0.55, 0, 0.25, 0);
+heartShape.bezierCurveTo(0.1, 0, 0, 0.25, 0, 0.25);
+const heartGeo = new THREE.ExtrudeGeometry(heartShape, { depth: 0.18, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 6, curveSegments: 32 });
+heartGeo.center(); heartGeo.rotateZ(Math.PI);
+const heart = new THREE.Group();
+heart.add(new THREE.Mesh(heartGeo, new THREE.MeshBasicMaterial({ color: 0xff7a6b })));
+const spriteTex = draw => { const c = document.createElement('canvas'); c.width = c.height = 256; draw(c.getContext('2d')); return new THREE.CanvasTexture(c); };
+const heartGlow = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  map: spriteTex(g => { const r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    r.addColorStop(0, 'rgba(255,140,110,0.9)'); r.addColorStop(0.35, 'rgba(255,90,90,0.35)'); r.addColorStop(1, 'rgba(255,60,80,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 256, 256); }) }));
+heartGlow.scale.set(3.2, 3.2, 1);
+heart.add(heartGlow);
+let nameSprite = null;
+function setHeartName(text) {
+  if (nameSprite) heart.remove(nameSprite);
+  nameSprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false,
+    map: spriteTex(g => { g.font = '300 34px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.fillStyle = '#ffd9cf';
+      g.shadowColor = 'rgba(255,120,100,0.9)'; g.shadowBlur = 18; g.fillText(text.toUpperCase().split('').join(' '), 128, 140, 250); }) }));
+  nameSprite.scale.set(1.6, 1.6, 1); nameSprite.position.y = -1.0;
+  heart.add(nameSprite);
+}
+setHeartName('mon pc');
+heart.scale.setScalar(R * 0.16);
+scene.add(heart);
+(function beat(t) {
+  const p = (t / 1000) % 1.1, pulse = Math.exp(-((p - 0.1) ** 2) / 0.004) + 0.6 * Math.exp(-((p - 0.32) ** 2) / 0.004);
+  heart.scale.setScalar(R * 0.16 * (1 + 0.12 * pulse));
+  heartGlow.material.opacity = 0.65 + 0.35 * pulse;
+  heart.quaternion.copy(Graph.camera().quaternion);
+  requestAnimationFrame(beat);
+})(0);
+
+// --- Caméra ---
+Graph.cameraPosition({ x: 0, y: R * 0.6, z: R * 3.2 });
+const controls = Graph.controls();
+controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = R * 1.15; controls.maxDistance = R * 8;
+const spinBtn = document.getElementById('spin');
+const setSpin = on => { controls.autoRotate = on; spinBtn.setAttribute('aria-pressed', String(on)); };
+spinBtn.onclick = () => setSpin(!controls.autoRotate);
+
+function refresh() {
+  Graph.nodeVisibility(Graph.nodeVisibility()).linkVisibility(Graph.linkVisibility())
+    .nodeColor(Graph.nodeColor()).linkWidth(Graph.linkWidth());
+}
+
+const TOKEN = '__TOKEN__';
+const bytes = b => b >= 1e9 ? (b / 1e9).toFixed(2) + ' Go' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' Mo' : b >= 1e3 ? (b / 1e3).toFixed(1) + ' ko' : (b | 0) + ' o';
+let extra = {};   // détails lents (DNS inverse, programmes) chargés au clic
+function infoHtml(n) {
+  const x = extra[n.ip] || {};
+  const kv = rows => `<div class="kv">${rows.filter(r => r[1] !== '' && r[1] != null).map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>`;
+  const conns = n.conns.map(c => `<div class="conn"><b>${esc(c.proto.toUpperCase())}</b> ${esc(c.local)} ${c.inbound ? '⟵' : '⟶'} :${esc(c.rport)}` +
+    `${c.procs.length ? ' · ' + esc(c.procs.map(u => `${u.name} (${u.pid})`).join(', ')) : ''}` +
+    `${c.rtt != null ? `<br>latence ${c.rtt.toFixed(1)} ms` : ''}${c.bytes_sent != null ? ` · ↑ ${bytes(c.bytes_sent)} · ↓ ${bytes(c.bytes_received || 0)}` : ''}</div>`).join('');
+  const procs = (x.processes || []).map(p => `<div class="conn"><b>${esc(p.name)}</b> · PID ${esc(p.pid)}${p.user ? ' · ' + esc(p.user) : ''}` +
+    `${p.exe ? `<br>${esc(p.exe)}` : ''}${p.cmdline ? `<br><span style="opacity:.7">${esc(p.cmdline)}</span>` : ''}</div>`).join('');
+  return `<b>${esc(n.ip)}</b>` +
+    (n.reasons && n.reasons.length ? `<div class="reasons ${esc(n.threat)}">${n.reasons.map(r => `<div>${esc(r)}</div>`).join('')}</div>` : '') +
+    `<div class="actions"><button class="act-kill" data-act="kill" data-ip="${esc(n.ip)}" title="Ferme les connexions ouvertes ; le programme peut se reconnecter">Couper</button>` +
+    `<button class="act-block" data-act="block" data-ip="${esc(n.ip)}" title="Bloque toute connexion avec cette IP, dans les deux sens">Bloquer</button></div>` +
+    kv([['Lieu', `${flag(n.country)} ${esc([n.city, n.region, n.country_name].filter(Boolean).join(', '))}`],
+        ['Opérateur', esc(n.org || '') + (n.asn ? ` <span style="opacity:.6">AS${esc(n.asn)}</span>` : '')],
+        ['Nom DNS', x.rdns === undefined ? '<i>recherche…</i>' : esc(x.rdns || '—')],
+        ['Sens', `<span style="color:${COLORS[n.direction]}">${esc(n.direction)}</span>`],
+        ['Statut', `<span style="color:${colorOf(n)}">${esc({ danger: 'DANGER', suspect: 'suspect', normal: 'rien de suspect' }[n.threat])}</span>`],
+        ['Programmes', esc(n.procs.join(', ') || 'inconnu')],
+        ['Ports', esc(n.ports.join(', ')) + ` (${esc(n.protos.join('/'))})`],
+        ['Échangé', `↑ ${bytes(n.bytes_sent)} · ↓ ${bytes(n.bytes_received)}`]]) +
+    `<div class="sub">Connexions (${n.count})</div>${conns}` +
+    (procs ? `<div class="sub">Programmes</div>${procs}` : '');
+}
+function showInfo(n) { document.getElementById('info').innerHTML = infoHtml(n); }
+function focus(n) {
+  selected = n; setSpin(false); refresh();
+  const k = 1.9;
+  Graph.cameraPosition({ x: n.x * k || 1, y: n.y * k, z: n.z * k || R * 2 }, { x: 0, y: 0, z: 0 }, 1400);
+  showInfo(n);
+  if (!extra[n.ip]) fetch('/api/details?ip=' + encodeURIComponent(n.ip)).then(r => r.json())
+    .then(d => { extra[n.ip] = d; if (selected === n) showInfo(n); }).catch(() => {});
+}
+
+// --- Actions : couper / bloquer / débloquer (fenêtre de mot de passe administrateur) ---
+const toast = (t, ok = true) => { const e = document.getElementById('toast'); e.textContent = t; e.style.color = ok ? 'var(--lan)' : '#ff9a9a';
+  e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', 4000); };
+const LABELS = { kill: ['Connexions coupées', 'Couper'], block: ['IP bloquée', 'Bloquer'], unblock: ['IP débloquée', 'Débloquer'] };
+async function act(kind, ip, btn) {
+  const p = peers.find(q => q.ip === ip);
+  if (kind === 'block' && p && p.direction === 'local' &&
+      !confirm(`${ip} est sur ton réseau local (ta box ?). La bloquer peut couper ton accès à internet. Continuer ?`)) return;
+  if (kind === 'block' && !confirm(`Bloquer toute communication avec ${ip} ?\nLe blocage dure jusqu'au prochain redémarrage.`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Mot de passe…'; }
+  try {
+    const r = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': TOKEN },
+      body: JSON.stringify({ action: kind, ip }) });
+    const d = await r.json().catch(() => ({ error: 'réponse invalide' }));
+    if (!r.ok) throw new Error(d.error || r.status);
+    toast(`${LABELS[kind][0]} : ${ip}`);
+    if (d.blocked) renderBlocked(d.blocked);
+    update();
+  } catch (e) { toast(`Échec (${LABELS[kind][1].toLowerCase()} ${ip}) : ${e.message}`, false); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = LABELS[kind][1]; } }
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (b) act(b.dataset.act, b.dataset.ip, b);
+});
+function renderBlocked(list) {
+  document.getElementById('blocked-sec').style.display = list.length ? 'block' : 'none';
+  document.getElementById('blocked').innerHTML = list.map(ip =>
+    `<div class="row"><span class="dot" style="--c:var(--in)"></span><span class="name">${esc(ip)}</span>` +
+    `<button class="act-unblock" data-act="unblock" data-ip="${esc(ip)}" style="border:1px solid;background:none;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer">Débloquer</button></div>`).join('');
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest('#results .row');
+  if (r && nodesById.has(r.dataset.id)) { focus(nodesById.get(r.dataset.id)); document.getElementById('results').innerHTML = ''; }
+});
+const search = document.getElementById('search');
+function runSearch() {
+  const q = search.value.toLowerCase().trim();
+  document.getElementById('results').innerHTML = !q ? '' : peers
+    .filter(p => [p.ip, p.city, p.country_name, ...p.procs].join(' ').toLowerCase().includes(q)).slice(0, 20)
+    .map(p => `<div class="row" data-id="${esc(p.ip)}"><span class="flag">${flag(p.country)}</span><span class="name">${esc(p.ip)} · ${esc(p.procs[0] || '')}</span></div>`).join('');
+}
+search.addEventListener('input', runSearch);
+
+// --- Légende par pays ---
+const legend = document.getElementById('legend'), allBtn = document.getElementById('all');
+function renderLegend() {
+  const byCountry = new Map();
+  peers.forEach(p => { const c = byCountry.get(p.country) || { name: p.country_name, n: 0 }; c.n++; byCountry.set(p.country, c); });
+  legend.innerHTML = [...byCountry].sort((a, b) => b[1].n - a[1].n).map(([cc, c]) =>
+    `<div class="row${hiddenCountries.has(cc) ? ' off' : ''}" data-cc="${esc(cc)}"><span class="flag">${flag(cc)}</span><span class="name">${esc(c.name)}</span><span class="count">${c.n}</span></div>`).join('');
+  allBtn.textContent = byCountry.size && [...byCountry.keys()].every(cc => hiddenCountries.has(cc)) ? 'Tout afficher' : 'Tout masquer';
+}
+legend.addEventListener('click', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  const cc = r.dataset.cc; hiddenCountries.has(cc) ? hiddenCountries.delete(cc) : hiddenCountries.add(cc);
+  renderLegend(); refresh();
+});
+allBtn.onclick = () => {
+  const all = [...new Set(peers.map(p => p.country))], hide = !all.every(cc => hiddenCountries.has(cc));
+  all.forEach(cc => hide ? hiddenCountries.add(cc) : hiddenCountries.delete(cc));
+  renderLegend(); refresh();
+};
+
+// --- Données en direct ---
+const pauseBtn = document.getElementById('pause'), live = document.getElementById('live');
+pauseBtn.onclick = () => {
+  paused = !paused; pauseBtn.setAttribute('aria-pressed', String(paused));
+  live.classList.toggle('paused', paused); live.textContent = paused ? 'en pause' : 'en direct';
+};
+async function update() {
+  if (paused) return;
+  let data;
+  try { data = await (await fetch('/api/connections', { cache: 'no-store' })).json(); showErr(''); }
+  catch (e) { showErr('le serveur IP Globe ne répond pas — relance l’appli'); return; }
+  setHeartName(data.host || 'mon pc');
+  peers = data.peers;
+  const nodes = [PC], links = [];
+  peers.forEach(p => {
+    let n = nodesById.get(p.ip);
+    if (!n) {   // position fixe : vraie position géographique, ou position stable sur le globe pour le réseau local
+      const pos = p.lat != null ? latLon(p.lat, p.lon, R * 1.02) : latLon(hash(p.ip) * 140 - 70, hash(p.ip + '#') * 360 - 180, R * 1.02);
+      n = { id: p.ip, ...pos, fx: pos.x, fy: pos.y, fz: pos.z };
+      nodesById.set(p.ip, n);
+    }
+    Object.assign(n, p);
+    nodes.push(n);
+    const dir = p.threat !== 'normal' ? p.threat : p.direction;
+    links.push(p.direction === 'entrant' ? { source: n.id, target: 'pc', dir, count: p.count }
+                                         : { source: 'pc', target: n.id, dir, count: p.count });
+  });
+  [...nodesById.keys()].forEach(id => { if (id !== 'pc' && !peers.some(p => p.ip === id)) nodesById.delete(id); });
+  if (selected && !nodesById.has(selected.id)) selected = null;
+  Graph.graphData({ nodes, links });
+  if (selected && !document.querySelector('#info button:disabled')) showInfo(selected);   // ne pas effacer un bouton en attente
+  renderBlocked(data.blocked || []);
+  const countries = new Set(peers.map(p => p.country)).size;
+  document.getElementById('count').textContent = `${peers.length} IP · ${countries} pays`;
+  document.getElementById('subtitle').textContent = `${peers.reduce((s, p) => s + p.count, 0)} connexions en direct`;
+  const bad = peers.filter(p => p.threat === 'danger'), sus = peers.filter(p => p.threat === 'suspect');
+  const al = document.getElementById('alert');
+  al.style.display = bad.length || sus.length ? 'inline-block' : 'none';
+  al.style.background = bad.length ? '' : 'rgba(255,165,59,.8)'; al.style.animation = bad.length ? '' : 'none';
+  al.textContent = bad.length ? `⚠ ${bad.length} menace${bad.length > 1 ? 's' : ''} détectée${bad.length > 1 ? 's' : ''}` : `${sus.length} connexion${sus.length > 1 ? 's' : ''} suspecte${sus.length > 1 ? 's' : ''}`;
+  al.onclick = () => { const t = bad[0] || sus[0]; if (t) focus(nodesById.get(t.ip)); };
+  renderLegend(); runSearch();
+}
+update();
+setInterval(update, REFRESH_MS);
+</script>
+</body>
+</html>

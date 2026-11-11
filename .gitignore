@@ -1,0 +1,8 @@
+# Données locales, téléchargées par install.sh ou créées au lancement
+venv/
+*.mmdb
+*.mmdb.gz
+feodo.txt
+spamhaus-drop.txt
+blocked.json
+__pycache__/
