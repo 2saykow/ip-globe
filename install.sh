@@ -25,6 +25,17 @@ fetch_db() {
 fetch_db city dbip-city-lite.mmdb
 fetch_db asn dbip-asn-lite.mmdb
 
+# Bibliothèques de la page, servies en local par server.py.
+mkdir -p lib
+while read -r name url; do
+  [ -s "lib/$name" ] || curl -sfL "$url" -o "lib/$name" || { echo "Téléchargement impossible : $name" >&2; exit 1; }
+done <<'LIBS'
+three.min.js https://unpkg.com/three@0.159.0/build/three.min.js
+3d-force-graph.min.js https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js
+topojson-client.min.js https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js
+countries-110m.json https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json
+LIBS
+
 chmod +x ip-globe.sh
 mkdir -p ~/.local/share/applications
 cat > ~/.local/share/applications/ip-globe.desktop <<EOF

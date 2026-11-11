@@ -32,7 +32,7 @@ Arrêter le serveur : `pkill -f "venv/bin/python server.py"`.
 - Le serveur n'écoute que sur 127.0.0.1 et exige un jeton secret pour les actions.
 - La géolocalisation est hors ligne (bases DB-IP Lite). Aucune IP n'est envoyée à un service externe.
 - Les listes de menaces (abuse.ch Feodo, Spamhaus DROP) sont téléchargées entières une fois par jour.
-- La page charge three.js, 3d-force-graph et la carte du monde depuis unpkg / jsDelivr.
+- La page n'appelle aucun site externe : three.js, 3d-force-graph et la carte du monde sont téléchargés par install.sh et servis en local.
 
 ## Limites
 

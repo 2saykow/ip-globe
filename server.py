@@ -280,6 +280,11 @@ def action(kind, raw_ip):
         raise ValueError("action inconnue")
 
 
+# Bibliothèques de la page, téléchargées par install.sh et servies en local (pas de CDN : marche avec NoScript).
+LIBS = {"three.min.js": "text/javascript", "3d-force-graph.min.js": "text/javascript",
+        "topojson-client.min.js": "text/javascript", "countries-110m.json": "application/json"}
+
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, code, body, ctype="application/json"):
         if isinstance(body, (dict, list)):
@@ -302,6 +307,10 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self.reply(400, {"error": "IP invalide"})
             return self.reply(200, {**details(ip), **geo(ip)})
+        lib = url.path.removeprefix("/lib/")
+        if lib in LIBS:  # liste fermée : pas de lecture de fichier arbitraire
+            with open(os.path.join(HERE, "lib", lib), "rb") as fh:
+                return self.reply(200, fh.read(), LIBS[lib])
         if url.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as fh:
                 return self.reply(200, fh.read().replace(b"__TOKEN__", TOKEN.encode()), "text/html; charset=utf-8")

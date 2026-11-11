@@ -6,3 +6,4 @@ feodo.txt
 spamhaus-drop.txt
 blocked.json
 __pycache__/
+lib/

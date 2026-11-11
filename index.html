@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>IP Globe</title>
-<script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>
-<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="/lib/three.min.js"></script>
+<script src="/lib/3d-force-graph.min.js"></script>
+<script src="/lib/topojson-client.min.js"></script>
 <style>
   :root { --panel: rgba(12,16,32,.62); --border: rgba(140,170,255,.14); --input: rgba(140,170,255,.18);
           --text: #e9edff; --text-2: #8e98c2; --accent: #8fb0ff; --out: #6ec8ff; --in: #c38bff; --lan: #7dffa8; --danger: #ff3b3b; --suspect: #ffa53b; }
@@ -88,7 +88,7 @@
 <script>
 const showErr = t => { const m = document.getElementById('msg'); m.textContent = t ? 'Erreur : ' + t : ''; m.style.display = t ? 'block' : 'none'; };
 window.onerror = (msg, src, line) => showErr(msg + ' (ligne ' + line + ')');
-if (typeof ForceGraph3D === 'undefined' || typeof THREE === 'undefined') showErr('bibliothèque 3D non chargée (connexion internet ?)');
+if (typeof ForceGraph3D === 'undefined' || typeof THREE === 'undefined') showErr('bibliothèque 3D non chargée (relance ./install.sh)');
 </script>
 <div id="sidebar">
   <section>
@@ -161,7 +161,7 @@ const glow = (radius, power, side, color) => new THREE.Mesh(new THREE.SphereGeom
 }));
 scene.add(glow(R * 0.995, 2.5, THREE.FrontSide, 0x4f7bff));
 scene.add(glow(R * 1.18, 4.0, THREE.BackSide, 0x3a5cff));
-fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(r => r.json()).then(world => {
+fetch('/lib/countries-110m.json').then(r => r.json()).then(world => {
   const mesh = topojson.mesh(world, world.objects.countries), pts = [];
   mesh.coordinates.forEach(line => line.slice(1).forEach((p, i) => {
     const a = latLon(line[i][1], line[i][0], R), b = latLon(p[1], p[0], R);
