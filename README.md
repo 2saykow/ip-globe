@@ -27,6 +27,13 @@ Arrêter le serveur : `pkill -f "venv/bin/python server.py"`.
 | Orange | suspect : port de pirate (4444, 1337…), shell/interpréteur connecté, programme invisible |
 | Violet / Bleu / Vert | entrant / sortant / réseau local, rien de suspect |
 
+## Sites .onion (Tor)
+
+Un site .onion n'a pas d'IP : ton PC ne parle qu'au premier relais Tor (le « garde »). Si **Tor Browser** est ouvert,
+IP Globe lit ses circuits sur son port de contrôle (9151, ou 9051 pour le service `tor`) : chaque relais traversé
+apparaît en rose sur le globe, relié au suivant, et le .onion visité s'affiche au bout du circuit.
+Sans Tor Browser ouvert, le garde reste un simple point orange (port 9001).
+
 ## Vie privée
 
 - Le serveur n'écoute que sur 127.0.0.1 et exige un jeton secret pour les actions.

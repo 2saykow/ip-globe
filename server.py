@@ -114,9 +114,9 @@ def assess(p, cache):
             break
     for c in p["conns"]:
         port = c["lport"] if c["inbound"] else c["rport"]
-        if port in BAD_PORTS:
+        if port in BAD_PORTS and not p.get("tor"):
             (danger if c["procs"] and any(u["name"] in SHELLS for u in c["procs"]) else suspect).append(f"port {port} : {BAD_PORTS[port]}")
-        if not c["procs"] and p["country"] != "LAN" and port not in SAFE_PORTS:
+        if not c["procs"] and p["country"] != "LAN" and port not in SAFE_PORTS and not p.get("tor"):   # service tor : utilisateur « tor »
             suspect.append(f"programme invisible (root ou autre utilisateur) sur le port {port}")
         for u in c["procs"]:
             info = proc_info(u["pid"], cache)
@@ -172,7 +172,96 @@ def geo(ip):
             "asn": s.get("autonomous_system_number"), "org": s.get("autonomous_system_organization", "Inconnu")}
 
 
-def connections():
+# --- Tor : circuits et sites .onion, lus sur le port de contrôle de Tor Browser (ou du service tor) ---
+TOR_CONTROL = (9151, 9051)
+RELAY_IP = {}   # empreinte du relais -> IP (stable, gardée entre deux appels)
+
+
+def tor_read(f):
+    """Dialogue avec le port de contrôle (fichier socket f) : authentification par cookie, puis circuits."""
+    def ask(cmd):
+        f.write(cmd.encode() + b"\r\n"); f.flush()
+        lines = []
+        while True:
+            line = f.readline().decode(errors="replace").rstrip("\r\n")
+            if not line:
+                raise OSError("Tor a fermé la connexion")
+            lines.append(line)
+            if line[3:4] == " ":
+                return lines
+            while line[3:4] == "+" and (line := f.readline().decode(errors="replace").rstrip("\r\n")) != ".":
+                if not line:
+                    raise OSError("Tor a fermé la connexion")
+                lines.append(line)
+
+    def getinfo(key):
+        lines = ask("GETINFO " + key)
+        if not lines[-1].startswith("250"):
+            return None
+        out = []
+        for l in lines[:-1]:
+            if l[:4] in ("250-", "250+"):
+                l = l[4:].partition("=")[2]
+            if l:
+                out.append(l)
+        return out
+
+    info = " ".join(ask("PROTOCOLINFO 1"))
+    methods = (re.search(r"METHODS=(\S+)", info) or [None, ""])[1].split(",")
+    cookie = re.search(r'COOKIEFILE="((?:[^"\\]|\\.)*)"', info)
+    if "NULL" in methods:
+        auth = "AUTHENTICATE"
+    elif "COOKIE" in methods and cookie:
+        with open(re.sub(r"\\(.)", r"\1", cookie[1]), "rb") as fh:
+            auth = "AUTHENTICATE " + fh.read().hex()
+    else:   # shortcut: Tor protégé par mot de passe seul non géré, à ajouter si quelqu'un en a besoin
+        raise OSError("authentification Tor non gérée : " + ",".join(methods))
+    if not ask(auth)[-1].startswith("250"):
+        raise OSError("authentification Tor refusée")
+
+    streams = {}
+    for l in getinfo("stream-status") or []:
+        f_ = l.split()
+        if len(f_) >= 4:
+            streams.setdefault(f_[2], []).append(f_[3])
+    circuits, guards = [], set()
+    for l in getinfo("circuit-status") or []:
+        f_ = l.split()
+        if len(f_) < 3 or f_[1] != "BUILT" or not f_[2].startswith("$"):
+            continue
+        kv = dict(x.split("=", 1) for x in f_[3:] if "=" in x)
+        hops = []
+        for h in f_[2].split(","):
+            fp, nick = (re.split(r"[~=]", h[1:], maxsplit=1) + [""])[:2]
+            if fp not in RELAY_IP:
+                r = [x for x in getinfo(f"ns/id/{fp}") or [] if x.startswith("r ")]
+                RELAY_IP[fp] = r[0].split()[6] if r and len(r[0].split()) > 6 else None   # pont : pas dans le consensus
+            hops.append({"fp": fp, "nick": nick, "ip": RELAY_IP[fp]})
+        if hops[0]["ip"]:
+            guards.add(hops[0]["ip"])
+        targets = streams.get(f_[0], [])
+        onion = kv.get("REND_QUERY")
+        onion = onion + ".onion" if onion else next((t.rsplit(":", 1)[0] for t in targets if ".onion:" in t), None)
+        if targets or onion:   # les circuits vides que Tor prépare d'avance ne sont pas affichés
+            circuits.append({"id": f_[0], "purpose": kv.get("PURPOSE", "GENERAL"), "onion": onion, "targets": targets, "hops": hops})
+    for c in circuits:
+        for h in c["hops"]:
+            h.update(geo(h["ip"]) if h["ip"] else {"country": "TOR", "country_name": "position inconnue (pont Tor ?)"})
+    return {"circuits": circuits, "guards": sorted(guards)}
+
+
+def tor_status():
+    """Circuits Tor en cours, ou None si aucun Tor n'est joignable."""
+    for port in TOR_CONTROL:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=2) as s, s.makefile("rwb") as f:
+                return tor_read(f)
+        except OSError:
+            continue
+    return None
+
+
+def connections(tor=None):
     listen = listening_ports()
     peers, last = {}, None
     for line in ss("-tunpi", "state", "established"):
@@ -195,9 +284,10 @@ def connections():
         p = peers.setdefault(rip, {"ip": rip, "conns": []})
         p["conns"].append(conn)
         last = conn
-    out, cache = [], {}
+    out, cache, guards = [], {}, set(tor["guards"]) if tor else set()
     for p in peers.values():
         p.update(geo(p["ip"]))
+        p["tor"] = p["ip"] in guards   # relais d'entrée confirmé par Tor lui-même
         assess(p, cache)
         cs = p["conns"]
         p["count"] = len(cs)
@@ -207,7 +297,7 @@ def connections():
         p["bytes_sent"] = sum(c.get("bytes_sent", 0) for c in cs)
         p["bytes_received"] = sum(c.get("bytes_received", 0) for c in cs)
         inbound = any(c["inbound"] for c in cs)
-        p["direction"] = "local" if p["country"] == "LAN" else ("entrant" if inbound else "sortant")
+        p["direction"] = "tor" if p["tor"] else "local" if p["country"] == "LAN" else ("entrant" if inbound else "sortant")
         out.append(p)
     return out
 
@@ -300,7 +390,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error(403)
         url = urlparse(self.path)
         if url.path == "/api/connections":
-            return self.reply(200, {"host": socket.gethostname(), "peers": connections(), "blocked": sorted(BLOCKED)})
+            tor = tor_status()
+            return self.reply(200, {"host": socket.gethostname(), "peers": connections(tor),
+                                    "tor": tor and tor["circuits"], "blocked": sorted(BLOCKED)})
         if url.path == "/api/details":
             try:
                 ip = str(ipaddress.ip_address(parse_qs(url.query).get("ip", [""])[0]))
@@ -359,6 +451,35 @@ if __name__ == "__main__":
         assess(fake, {})
         sh.kill(); a.close(); b.close()
         assert fake["threat"] == "danger" and any("REVERSE SHELL" in r for r in fake["reasons"]), fake
+        import io
+        class FakeTor(io.BytesIO):   # réponses enregistrées d'un Tor, lues dans l'ordre
+            def write(self, b): return len(b)
+        cookie = os.path.join(HERE, ".selftest-cookie")
+        with open(cookie, "wb") as fh:
+            fh.write(b"\x01\x02")
+        RELAY_IP.clear()
+        tor = tor_read(FakeTor((
+            f'250-PROTOCOLINFO 1\r\n250-AUTH METHODS=COOKIE,SAFECOOKIE COOKIEFILE="{cookie}"\r\n250-VERSION Tor="0.4.8"\r\n250 OK\r\n'
+            '250 OK\r\n'
+            '250-stream-status=7 SUCCEEDED 5 duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion:443\r\n250 OK\r\n'
+            '250+circuit-status=\r\n'
+            '5 BUILT $AAAA~Garde,$BBBB~Milieu,$CCCC~Rdv BUILD_FLAGS=IS_INTERNAL PURPOSE=HS_CLIENT_REND HS_STATE=HSCR_JOINED REND_QUERY=duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad TIME_CREATED=x\r\n'
+            '6 BUILT $AAAA~Garde,$DDDD~Vide PURPOSE=GENERAL\r\n'
+            '7 EXTENDED $AAAA~Garde PURPOSE=GENERAL\r\n.\r\n250 OK\r\n'
+            '250+ns/id/AAAA=\r\nr Garde AAAA BBBB 2026-11-11 12:00:00 8.8.8.8 9001 0\r\ns Guard\r\n.\r\n250 OK\r\n'
+            '250+ns/id/BBBB=\r\nr Milieu BBBB CCCC 2026-11-11 12:00:00 35.186.224.39 443 0\r\n.\r\n250 OK\r\n'
+            '552 Unrecognized key "ns/id/CCCC"\r\n'
+            '250+ns/id/DDDD=\r\nr Vide DDDD CCCC 2026-11-11 12:00:00 1.1.1.1 443 0\r\n.\r\n250 OK\r\n').encode()))
+        os.remove(cookie)
+        assert tor["guards"] == ["8.8.8.8"], tor
+        assert len(tor["circuits"]) == 1, tor   # le circuit vide (6) et le non construit (7) sont ignorés
+        c = tor["circuits"][0]
+        assert c["onion"] == "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion" and c["targets"], c
+        assert [h["ip"] for h in c["hops"]] == ["8.8.8.8", "35.186.224.39", None] and c["hops"][1]["org"] == "Google LLC", c
+        relay = {"ip": "8.8.8.8", "country": "US", "tor": True, "conns": [{"inbound": False, "lport": "5000", "rport": "9001", "procs": []}]}
+        assess(relay, {})
+        assert relay["threat"] == "normal", relay   # garde Tor confirmé : ni port 9001 ni programme invisible
+        print("Tor joignable :", "oui, %d circuit(s) affichés" % len(t["circuits"]) if (t := tor_status()) else "non (Tor Browser fermé ?)")
         cs = connections()
         print("selftest OK,", len(THREATS), "réseaux malveillants chargés,", len(cs), "IP,",
               {lvl: sum(p["threat"] == lvl for p in cs) for lvl in ("danger", "suspect", "normal")})

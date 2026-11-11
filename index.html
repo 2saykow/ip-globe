@@ -8,7 +8,7 @@
 <script src="/lib/topojson-client.min.js"></script>
 <style>
   :root { --panel: rgba(12,16,32,.62); --border: rgba(140,170,255,.14); --input: rgba(140,170,255,.18);
-          --text: #e9edff; --text-2: #8e98c2; --accent: #8fb0ff; --out: #6ec8ff; --in: #c38bff; --lan: #7dffa8; --danger: #ff3b3b; --suspect: #ffa53b; }
+          --text: #e9edff; --text-2: #8e98c2; --accent: #8fb0ff; --out: #6ec8ff; --in: #c38bff; --lan: #7dffa8; --danger: #ff3b3b; --suspect: #ffa53b; --tor: #ff6bd6; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #01020a; color: var(--text); font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
   #graph { position: fixed; inset: 0; }
@@ -82,7 +82,7 @@
 <body>
 <div id="graph"></div>
 <div id="title"><h1>IP Globe</h1><p id="subtitle">connexions en direct</p><div id="alert" role="alert"></div></div>
-<div id="keys"><span style="--c:var(--danger)">danger</span><span style="--c:var(--suspect)">suspect</span><span style="--c:var(--in)">entrant</span><span style="--c:var(--out)">sortant</span><span style="--c:var(--lan)">réseau local</span></div>
+<div id="keys"><span style="--c:var(--danger)">danger</span><span style="--c:var(--suspect)">suspect</span><span style="--c:var(--in)">entrant</span><span style="--c:var(--out)">sortant</span><span style="--c:var(--lan)">réseau local</span><span style="--c:var(--tor)">tor</span></div>
 <div id="msg" role="alert"></div>
 <div id="toast" role="status"></div>
 <script>
@@ -117,7 +117,7 @@ if (typeof ForceGraph3D === 'undefined' || typeof THREE === 'undefined') showErr
 <script>
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const R = 320, REFRESH_MS = 3000;
-const COLORS = { sortant: '#6ec8ff', entrant: '#c38bff', local: '#7dffa8', danger: '#ff3b3b', suspect: '#ffa53b' };
+const COLORS = { sortant: '#6ec8ff', entrant: '#c38bff', local: '#7dffa8', danger: '#ff3b3b', suspect: '#ffa53b', tor: '#ff6bd6' };
 const colorOf = n => COLORS[n.threat && n.threat !== 'normal' ? n.threat : n.direction];   // la menace passe avant le sens
 const flag = cc => cc === 'LAN' ? '🏠' : /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 127397 + c.charCodeAt(0))) : '🌐';
 const latLon = (lat, lon, r = R) => {
@@ -137,7 +137,8 @@ const endNode = x => typeof x === 'object' ? x : nodesById.get(x);
 const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph'))
   .backgroundColor('#01020a').showNavInfo(false)
   .cooldownTicks(0).warmupTicks(0).enableNodeDrag(false)
-  .nodeLabel(n => n.pc ? '' : `<b>${esc(n.ip)}</b><br>${flag(n.country)} ${esc(n.city ? n.city + ', ' : '')}${esc(n.country_name)}<br><span style="color:${colorOf(n)}">${esc(n.threat !== 'normal' ? n.threat.toUpperCase() : n.direction)}</span> · ${esc(n.procs.join(', ') || 'programme inconnu')}`)
+  .nodeLabel(n => n.pc ? '' : n.relay ? `<b>🧅 relais Tor ${esc(n.nick)}</b><br>${flag(n.country)} ${esc(n.city ? n.city + ', ' : '')}${esc(n.country_name)}` +
+      n.circuits.filter(c => c.onion).map(c => `<br><span style="color:${COLORS.tor}">${esc(c.onion)}</span>`).join('') : `<b>${esc(n.ip)}</b><br>${flag(n.country)} ${esc(n.city ? n.city + ', ' : '')}${esc(n.country_name)}<br><span style="color:${colorOf(n)}">${esc(n.threat !== 'normal' ? n.threat.toUpperCase() : n.direction)}</span> · ${esc(n.procs.join(', ') || 'programme inconnu')}`)
   .nodeVisibility(n => !n.pc && visible(n))
   .nodeColor(n => selected && n !== selected ? 'rgba(90,100,140,0.4)' : colorOf(n))
   .nodeVal(n => (1 + Math.min(n.count || 1, 12)) * (n.threat === 'danger' ? 4 : n.threat === 'suspect' ? 2 : 1)).nodeRelSize(2.2).nodeOpacity(0.95).nodeResolution(12)
@@ -257,13 +258,28 @@ function infoHtml(n) {
     `<div class="sub">Connexions (${n.count})</div>${conns}` +
     (procs ? `<div class="sub">Programmes</div>${procs}` : '');
 }
-function showInfo(n) { document.getElementById('info').innerHTML = infoHtml(n); }
+const PURPOSES = { GENERAL: 'navigation normale', HS_CLIENT_REND: 'site .onion (rendez-vous)', HS_CLIENT_INTRO: 'site .onion (introduction)', HS_CLIENT_HSDIR: 'annuaire .onion' };
+function torHtml(n) {
+  if (!n.circuits || !n.circuits.length) return '';
+  return `<div class="sub">Circuits Tor (${n.circuits.length})</div>` + n.circuits.map(c => `<div class="conn">` +
+    (c.onion ? `<b style="color:${COLORS.tor}">🧅 ${esc(c.onion)}</b><br>` : '') +
+    `${esc(PURPOSES[c.purpose] || c.purpose)}${c.targets.length ? ' · ' + esc(c.targets.join(', ')) : ''}<br>` +
+    `<span style="opacity:.8">ton PC → ${c.hops.map(h => `${flag(h.country)} ${esc(h.nick)}`).join(' → ')}${c.onion ? ' → 🧅' : ''}</span></div>`).join('');
+}
+function relayHtml(n) {
+  return `<b>🧅 Relais Tor ${esc(n.nick)}</b>` +
+    `<div class="kv">${[['Lieu', `${flag(n.country)} ${esc([n.city, n.region, n.country_name].filter(Boolean).join(', '))}`],
+      ['IP', esc(n.ip || 'inconnue')], ['Opérateur', esc(n.org || '')], ['Empreinte', `<span style="word-break:break-all">${esc(n.fp)}</span>`]]
+      .filter(r => r[1]).map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>` +
+    `<div class="reasons"><div>Ton PC ne parle pas directement à ce relais : le trafic passe par le relais d'entrée (garde), chiffré en plusieurs couches.</div></div>` + torHtml(n);
+}
+function showInfo(n) { document.getElementById('info').innerHTML = n.relay ? relayHtml(n) : infoHtml(n) + torHtml(n); }
 function focus(n) {
   selected = n; setSpin(false); refresh();
   const k = 1.9;
   Graph.cameraPosition({ x: n.x * k || 1, y: n.y * k, z: n.z * k || R * 2 }, { x: 0, y: 0, z: 0 }, 1400);
   showInfo(n);
-  if (!extra[n.ip]) fetch('/api/details?ip=' + encodeURIComponent(n.ip)).then(r => r.json())
+  if (!n.relay && !extra[n.ip]) fetch('/api/details?ip=' + encodeURIComponent(n.ip)).then(r => r.json())
     .then(d => { extra[n.ip] = d; if (selected === n) showInfo(n); }).catch(() => {});
 }
 
@@ -345,20 +361,41 @@ async function update() {
   setHeartName(data.host || 'mon pc');
   peers = data.peers;
   const nodes = [PC], links = [];
-  peers.forEach(p => {
-    let n = nodesById.get(p.ip);
-    if (!n) {   // position fixe : vraie position géographique, ou position stable sur le globe pour le réseau local
-      const pos = p.lat != null ? latLon(p.lat, p.lon, R * 1.02) : latLon(hash(p.ip) * 140 - 70, hash(p.ip + '#') * 360 - 180, R * 1.02);
-      n = { id: p.ip, ...pos, fx: pos.x, fy: pos.y, fz: pos.z };
-      nodesById.set(p.ip, n);
+  const nodeAt = (id, lat, lon) => {   // position fixe : vraie position géographique, ou position stable sur le globe (réseau local, pont Tor)
+    let n = nodesById.get(id);
+    if (!n) {
+      const pos = lat != null ? latLon(lat, lon, R * 1.02) : latLon(hash(id) * 140 - 70, hash(id + '#') * 360 - 180, R * 1.02);
+      n = { id, ...pos, fx: pos.x, fy: pos.y, fz: pos.z };
+      nodesById.set(id, n);
     }
-    Object.assign(n, p);
+    return n;
+  };
+  peers.forEach(p => {
+    const n = nodeAt(p.ip, p.lat, p.lon);
+    Object.assign(n, p, { circuits: [] });
     nodes.push(n);
     const dir = p.threat !== 'normal' ? p.threat : p.direction;
     links.push(p.direction === 'entrant' ? { source: n.id, target: 'pc', dir, count: p.count }
                                          : { source: 'pc', target: n.id, dir, count: p.count });
   });
-  [...nodesById.keys()].forEach(id => { if (id !== 'pc' && !peers.some(p => p.ip === id)) nodesById.delete(id); });
+  // circuits Tor : ton PC → garde → relais → … ; le garde est une vraie connexion, les suivants passent à travers lui
+  const relays = new Map();
+  (data.tor || []).forEach(c => {
+    let prev = null;
+    c.hops.forEach((h, i) => {
+      const direct = i === 0 && h.ip && peers.some(p => p.ip === h.ip), id = direct ? h.ip : 'tor:' + h.fp;
+      let n = direct ? nodesById.get(id) : relays.get(id);
+      if (!n) {
+        n = Object.assign(nodeAt(id, h.lat, h.lon), h, { relay: true, direction: 'tor', threat: 'normal', procs: [], count: 0, circuits: [] });
+        relays.set(id, n); nodes.push(n);
+      }
+      n.circuits.push(c);
+      if (!direct) links.push({ source: prev ? prev.id : 'pc', target: id, dir: 'tor', count: 1 });
+      prev = n;
+    });
+  });
+  const keep = new Set(nodes.map(n => n.id));
+  [...nodesById.keys()].forEach(id => { if (!keep.has(id)) nodesById.delete(id); });
   if (selected && !nodesById.has(selected.id)) selected = null;
   Graph.graphData({ nodes, links });
   if (selected && !document.querySelector('#info button:disabled')) showInfo(selected);   // ne pas effacer un bouton en attente
